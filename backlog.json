@@ -1,0 +1,472 @@
+{
+  "project": "Legacy Gateway",
+  "summary": "A security gateway that protects legacy systems that cannot easily be updated, by isolating them on a private network and placing a reverse proxy in front of them that adds authentication, MFA, encryption, access control, and audit logging without modifying the legacy application.",
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "title": "Legacy demo application",
+      "stakeholder": "System owner",
+      "story": "As a system owner, I want a simple legacy web application to stand in for a real outdated system, so that the gateway can be demonstrated against a realistic target.",
+      "type": "functional",
+      "priority": "must",
+      "points": 3,
+      "area": "legacy-app",
+      "acceptance": [
+        "Serves a small records-style web app (list, view, and edit records) over plain HTTP",
+        "Has no built-in authentication, encryption, or logging",
+        "Runs in its own container on a fixed internal port"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "REQ-002",
+      "title": "Containerized deployment",
+      "stakeholder": "IT administrator",
+      "story": "As an IT administrator, I want the gateway and legacy app deployed as separate containers, so that the whole system can be started consistently with one command.",
+      "type": "non-functional",
+      "priority": "must",
+      "points": 3,
+      "area": "deployment",
+      "acceptance": [
+        "A Docker Compose file starts the gateway, legacy app, and database",
+        "`docker compose up` brings up a working system from a fresh clone",
+        "Each service runs in its own container"
+      ],
+      "depends_on": ["REQ-001"]
+    },
+    {
+      "id": "REQ-003",
+      "title": "Network isolation of the legacy app",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want the legacy app reachable only through the gateway, so that no one can bypass the security controls.",
+      "type": "non-functional",
+      "priority": "must",
+      "points": 2,
+      "area": "isolation",
+      "acceptance": [
+        "Legacy app is attached only to an internal Docker network with no published ports",
+        "Direct requests to the legacy app from the host or outside network fail",
+        "The gateway is the only service attached to both the internal and external networks"
+      ],
+      "depends_on": ["REQ-002"]
+    },
+    {
+      "id": "REQ-004",
+      "title": "Reverse proxy request forwarding",
+      "stakeholder": "End user",
+      "story": "As an end user, I want my requests passed through to the legacy app transparently, so that I can use it exactly as before.",
+      "type": "functional",
+      "priority": "must",
+      "points": 5,
+      "area": "proxy",
+      "acceptance": [
+        "GET, POST, PUT, and DELETE requests are forwarded with headers, query strings, and bodies intact",
+        "Responses (status, headers, body) are returned to the client unchanged except for gateway-added security headers",
+        "All legacy app pages and forms work through the gateway"
+      ],
+      "depends_on": ["REQ-001"]
+    },
+    {
+      "id": "REQ-005",
+      "title": "No modifications to the legacy app",
+      "stakeholder": "System owner",
+      "story": "As a system owner, I want the gateway to work without any changes to the legacy app's code, so that systems that can't be modified can still be protected.",
+      "type": "non-functional",
+      "priority": "must",
+      "points": 1,
+      "area": "proxy",
+      "acceptance": [
+        "Legacy app source is unchanged between the unprotected and protected demos",
+        "All security features are implemented in the gateway"
+      ],
+      "depends_on": ["REQ-004"]
+    },
+    {
+      "id": "REQ-006",
+      "title": "Upstream failure handling",
+      "stakeholder": "End user",
+      "story": "As an end user, I want a clear error page when the legacy app is down, so that I know the problem isn't on my end.",
+      "type": "functional",
+      "priority": "should",
+      "points": 2,
+      "area": "proxy",
+      "acceptance": [
+        "Gateway returns a 502/503 page with a friendly message when the legacy app is unreachable",
+        "Upstream timeouts are configurable"
+      ],
+      "depends_on": ["REQ-004"]
+    },
+    {
+      "id": "REQ-007",
+      "title": "User account store",
+      "stakeholder": "IT administrator",
+      "story": "As an IT administrator, I want a database of gateway users, so that access can be granted and revoked per person.",
+      "type": "functional",
+      "priority": "must",
+      "points": 3,
+      "area": "auth",
+      "acceptance": [
+        "Stores username, password hash, role, account status, and MFA secret",
+        "Disabled accounts cannot log in",
+        "A seed script creates an initial admin account"
+      ],
+      "depends_on": ["REQ-002"]
+    },
+    {
+      "id": "REQ-008",
+      "title": "Secure password storage",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want passwords stored with a strong hashing algorithm, so that a database leak doesn't expose user passwords.",
+      "type": "non-functional",
+      "priority": "must",
+      "points": 2,
+      "area": "auth",
+      "acceptance": [
+        "Passwords are hashed with bcrypt or Argon2 using per-user salts",
+        "Plaintext passwords are never stored or logged"
+      ],
+      "depends_on": ["REQ-007"]
+    },
+    {
+      "id": "REQ-009",
+      "title": "Login and session management",
+      "stakeholder": "End user",
+      "story": "As an end user, I want to log in once and stay authenticated, so that I can use the legacy app securely without re-entering credentials on every page.",
+      "type": "functional",
+      "priority": "must",
+      "points": 5,
+      "area": "auth",
+      "acceptance": [
+        "Unauthenticated requests are redirected to the gateway's login page",
+        "Successful login creates a session cookie marked HttpOnly, Secure, and SameSite",
+        "Session IDs are regenerated on login",
+        "After login, the user is sent to the page they originally requested"
+      ],
+      "depends_on": ["REQ-004", "REQ-007", "REQ-008"]
+    },
+    {
+      "id": "REQ-010",
+      "title": "Logout and session expiry",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want sessions to expire after inactivity, so that unattended workstations don't stay logged in.",
+      "type": "functional",
+      "priority": "should",
+      "points": 2,
+      "area": "auth",
+      "acceptance": [
+        "Users can log out, which invalidates the session server-side",
+        "Sessions expire after a configurable idle timeout"
+      ],
+      "depends_on": ["REQ-009"]
+    },
+    {
+      "id": "REQ-011",
+      "title": "Brute-force protection",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want repeated failed logins to be throttled, so that attackers can't guess passwords.",
+      "type": "functional",
+      "priority": "should",
+      "points": 3,
+      "area": "auth",
+      "acceptance": [
+        "An account is temporarily locked after a configurable number of failed attempts",
+        "Login attempts are rate-limited per IP address",
+        "Lockouts are recorded in the audit log"
+      ],
+      "depends_on": ["REQ-009", "REQ-019"]
+    },
+    {
+      "id": "REQ-012",
+      "title": "MFA enrollment (TOTP)",
+      "stakeholder": "End user",
+      "story": "As an end user, I want to enroll an authenticator app, so that my account is protected even if my password is stolen.",
+      "type": "functional",
+      "priority": "must",
+      "points": 3,
+      "area": "mfa",
+      "acceptance": [
+        "User can enroll by scanning a QR code with an authenticator app",
+        "Enrollment is confirmed only after a valid code is entered",
+        "MFA secrets are stored securely in the user store"
+      ],
+      "depends_on": ["REQ-009"]
+    },
+    {
+      "id": "REQ-013",
+      "title": "MFA verification at login",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want users to enter a one-time code after their password, so that a stolen password alone isn't enough to get in.",
+      "type": "functional",
+      "priority": "must",
+      "points": 3,
+      "area": "mfa",
+      "acceptance": [
+        "Enrolled users must enter a valid TOTP code before a session is created",
+        "Invalid or reused codes are rejected",
+        "Admins can require MFA for all users"
+      ],
+      "depends_on": ["REQ-012"]
+    },
+    {
+      "id": "REQ-014",
+      "title": "Role-based access control",
+      "stakeholder": "IT administrator",
+      "story": "As an IT administrator, I want to assign roles to users, so that people only get the access their job requires.",
+      "type": "functional",
+      "priority": "should",
+      "points": 5,
+      "area": "authorization",
+      "acceptance": [
+        "Supports at least admin and standard user roles",
+        "Gateway admin pages are restricted to admins",
+        "A user's role is checked on every request"
+      ],
+      "depends_on": ["REQ-009"]
+    },
+    {
+      "id": "REQ-015",
+      "title": "Path-level access rules",
+      "stakeholder": "IT administrator",
+      "story": "As an IT administrator, I want to restrict which parts of the legacy app each role can reach, so that sensitive functions are protected even though the app has no permissions of its own.",
+      "type": "functional",
+      "priority": "should",
+      "points": 5,
+      "area": "authorization",
+      "acceptance": [
+        "Rules map roles to allowed URL paths and HTTP methods in a config file",
+        "Requests that match no rule are denied by default",
+        "Denied requests return 403 and are logged"
+      ],
+      "depends_on": ["REQ-014", "REQ-018"]
+    },
+    {
+      "id": "REQ-016",
+      "title": "HTTPS termination",
+      "stakeholder": "End user",
+      "story": "As an end user, I want my connection to the gateway encrypted, so that credentials and data can't be read on the network.",
+      "type": "non-functional",
+      "priority": "must",
+      "points": 3,
+      "area": "encryption",
+      "acceptance": [
+        "Gateway serves all traffic over TLS 1.2 or higher",
+        "Plain HTTP requests are redirected to HTTPS",
+        "Works with a self-signed certificate for local demos"
+      ],
+      "depends_on": ["REQ-004"]
+    },
+    {
+      "id": "REQ-017",
+      "title": "Security response headers",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want the gateway to add modern security headers, so that browsers get protections the legacy app never set.",
+      "type": "non-functional",
+      "priority": "could",
+      "points": 1,
+      "area": "encryption",
+      "acceptance": [
+        "Adds HSTS, X-Content-Type-Options, X-Frame-Options, and a basic Content-Security-Policy",
+        "Headers are added without breaking legacy app pages"
+      ],
+      "depends_on": ["REQ-016"]
+    },
+    {
+      "id": "REQ-018",
+      "title": "Request audit logging",
+      "stakeholder": "Compliance officer",
+      "story": "As a compliance officer, I want every request through the gateway recorded, so that access to the legacy system can be audited.",
+      "type": "functional",
+      "priority": "must",
+      "points": 3,
+      "area": "logging",
+      "acceptance": [
+        "Each request logs timestamp, user, source IP, method, path, response status, and allow/deny decision",
+        "Logs are stored in the database",
+        "Sensitive values (passwords, session tokens) are never logged"
+      ],
+      "depends_on": ["REQ-004", "REQ-009"]
+    },
+    {
+      "id": "REQ-019",
+      "title": "Authentication event logging",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want login activity recorded, so that I can investigate suspicious access attempts.",
+      "type": "functional",
+      "priority": "must",
+      "points": 2,
+      "area": "logging",
+      "acceptance": [
+        "Logs successful and failed logins, MFA failures, lockouts, and logouts",
+        "Each event includes username, source IP, and timestamp"
+      ],
+      "depends_on": ["REQ-009", "REQ-018"]
+    },
+    {
+      "id": "REQ-020",
+      "title": "Tamper-evident log storage",
+      "stakeholder": "Compliance officer",
+      "story": "As a compliance officer, I want audit logs protected from modification, so that records can be trusted during an investigation.",
+      "type": "non-functional",
+      "priority": "could",
+      "points": 5,
+      "area": "logging",
+      "acceptance": [
+        "Log entries are append-only through the application",
+        "Each entry includes a hash of the previous entry, forming a verifiable chain",
+        "A verification command reports whether any entry was altered"
+      ],
+      "depends_on": ["REQ-018"]
+    },
+    {
+      "id": "REQ-021",
+      "title": "Audit log dashboard",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want to view and filter logs in a web dashboard, so that I can review activity without querying the database.",
+      "type": "functional",
+      "priority": "should",
+      "points": 5,
+      "area": "dashboard",
+      "acceptance": [
+        "Admin-only page lists log entries, newest first, with pagination",
+        "Entries can be filtered by user, date range, path, and allow/deny decision"
+      ],
+      "depends_on": ["REQ-014", "REQ-018", "REQ-019"]
+    },
+    {
+      "id": "REQ-022",
+      "title": "User management interface",
+      "stakeholder": "IT administrator",
+      "story": "As an IT administrator, I want to manage gateway users from the dashboard, so that I can grant and revoke access quickly.",
+      "type": "functional",
+      "priority": "should",
+      "points": 5,
+      "area": "dashboard",
+      "acceptance": [
+        "Admins can create, disable, and re-enable users",
+        "Admins can assign roles and reset a user's MFA enrollment",
+        "All admin actions are logged"
+      ],
+      "depends_on": ["REQ-012", "REQ-014", "REQ-018"]
+    },
+    {
+      "id": "REQ-023",
+      "title": "Suspicious activity detection",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want unusual behavior flagged automatically, so that potential attacks or misuse are noticed early.",
+      "type": "functional",
+      "priority": "could",
+      "points": 8,
+      "area": "monitoring",
+      "acceptance": [
+        "Flags repeated failed logins, logins at unusual hours for that user, abnormal request volume, and repeated denied requests",
+        "Detection thresholds are configurable",
+        "Each flag records the rule triggered and the related log entries"
+      ],
+      "depends_on": ["REQ-018", "REQ-019"]
+    },
+    {
+      "id": "REQ-024",
+      "title": "Security alerts on dashboard",
+      "stakeholder": "Security administrator",
+      "story": "As a security administrator, I want flagged events shown prominently in the dashboard, so that I can respond to them quickly.",
+      "type": "functional",
+      "priority": "could",
+      "points": 3,
+      "area": "monitoring",
+      "acceptance": [
+        "Dashboard shows open alerts with severity and time",
+        "Admins can mark alerts as reviewed"
+      ],
+      "depends_on": ["REQ-021", "REQ-023"]
+    },
+    {
+      "id": "REQ-025",
+      "title": "Gateway configuration",
+      "stakeholder": "IT administrator",
+      "story": "As an IT administrator, I want gateway settings in a config file and environment variables, so that the gateway can protect different legacy apps without code changes.",
+      "type": "non-functional",
+      "priority": "must",
+      "points": 2,
+      "area": "deployment",
+      "acceptance": [
+        "Upstream URL, ports, timeouts, and session settings are configurable",
+        "Secrets (session keys, database credentials) come from environment variables and are never committed"
+      ],
+      "depends_on": ["REQ-004"]
+    },
+    {
+      "id": "REQ-026",
+      "title": "Performance overhead",
+      "stakeholder": "End user",
+      "story": "As an end user, I want the gateway to add minimal delay, so that the legacy app feels as responsive as before.",
+      "type": "non-functional",
+      "priority": "should",
+      "points": 2,
+      "area": "proxy",
+      "acceptance": [
+        "Median added latency is under 100 ms in the demo environment",
+        "Latency is measured with a repeatable benchmark documented in the repo"
+      ],
+      "depends_on": ["REQ-004", "REQ-009"]
+    },
+    {
+      "id": "REQ-027",
+      "title": "Automated tests",
+      "stakeholder": "Developer",
+      "story": "As a developer, I want automated tests for the gateway's security features, so that changes don't silently break protection.",
+      "type": "non-functional",
+      "priority": "should",
+      "points": 3,
+      "area": "testing",
+      "acceptance": [
+        "Unit tests cover password hashing, sessions, MFA verification, and access rules",
+        "An integration test confirms the legacy app cannot be reached directly",
+        "Tests run in CI on every pull request"
+      ],
+      "depends_on": ["REQ-003", "REQ-009"]
+    },
+    {
+      "id": "REQ-028",
+      "title": "Setup and architecture documentation",
+      "stakeholder": "Developer",
+      "story": "As a developer, I want clear setup and architecture docs, so that anyone can run and understand the project.",
+      "type": "non-functional",
+      "priority": "must",
+      "points": 2,
+      "area": "docs",
+      "acceptance": [
+        "README explains setup, configuration, and running the demo",
+        "Architecture diagram shows the request flow and network isolation"
+      ],
+      "depends_on": ["REQ-002", "REQ-003"]
+    },
+    {
+      "id": "REQ-029",
+      "title": "Non-HTTP protocol support (e.g., DICOM)",
+      "stakeholder": "Hospital IT administrator",
+      "story": "As a hospital IT administrator, I want the gateway to protect devices that use medical protocols like DICOM, so that equipment such as MRI systems can be secured.",
+      "type": "functional",
+      "priority": "wont",
+      "points": null,
+      "area": "proxy",
+      "acceptance": [
+        "Out of scope this term; documented as future work"
+      ],
+      "depends_on": ["REQ-004"]
+    },
+    {
+      "id": "REQ-030",
+      "title": "Single sign-on with external identity providers",
+      "stakeholder": "IT administrator",
+      "story": "As an IT administrator, I want users to sign in with the organization's existing identity provider (OIDC/SAML), so that they don't need separate gateway accounts.",
+      "type": "functional",
+      "priority": "wont",
+      "points": null,
+      "area": "auth",
+      "acceptance": [
+        "Out of scope this term; documented as future work"
+      ],
+      "depends_on": ["REQ-009"]
+    }
+  ]
+}
